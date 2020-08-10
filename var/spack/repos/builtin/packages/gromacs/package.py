@@ -24,6 +24,7 @@ class Gromacs(CMakePackage):
     maintainers = ['junghans', 'marvinbernhardt']
 
     version('master', branch='master')
+    version('2021-sve', sha256='cc20f4569b5648b35597707c9008c9bba977fcdf6bd0b98005d8adf9a32531b8')
     version('2020.3', sha256='903183691132db14e55b011305db4b6f4901cc4912d2c56c131edfef18cc92a9')
     version('2020.2', sha256='7465e4cd616359d84489d919ec9e4b1aaf51f0a4296e693c249e83411b7bd2f3')
     version('2020.1', sha256='e1666558831a3951c02b81000842223698016922806a8ce152e8f616e29899cf')
@@ -75,6 +76,14 @@ class Gromacs(CMakePackage):
             description='GMX_RELAXED_DOUBLE_PRECISION for Fujitsu PRIMEHPC')
     variant('hwloc', default=True,
             description='Use the hwloc portable hardware locality library')
+    variant('fftpack', default=False, description='Use builtin fftpack')
+    variant(
+        'vl',
+        default='512',
+        description='The SVE vector length, only relevant on a64fx',
+        values=('128', '256', '512', 'scalable'),
+        multi=False
+    )
 
     depends_on('mpi', when='+mpi')
     # define matching plumed versions
@@ -88,13 +97,15 @@ class Gromacs(CMakePackage):
     depends_on('plumed@2.5.0:2.5.9~mpi', when='@2018.6+plumed~mpi')
     depends_on('plumed+mpi', when='+plumed+mpi')
     depends_on('plumed~mpi', when='+plumed~mpi')
-    depends_on('fftw-api@3', when='~cuda')
+    depends_on('fftw-api@3', when='~cuda ~fftpack')
     depends_on('mkl', when='fft=mkl')
     depends_on('cmake@2.8.8:3.99.99', type='build')
     depends_on('cmake@3.4.3:3.99.99', type='build', when='@2018:')
     depends_on('cmake@3.13.0:3.99.99', type='build', when='@master')
     depends_on('cmake@3.13.0:3.99.99', type='build', when='%fj')
     depends_on('cuda', when='+cuda')
+    depends_on('blas')
+    depends_on('lapack')
 
     # TODO: openmpi constraint; remove when concretizer is fixed
     depends_on('hwloc@:1.999', when='+hwloc')
@@ -105,6 +116,29 @@ class Gromacs(CMakePackage):
     def patch(self):
         if '+plumed' in self.spec:
             self.spec['plumed'].package.apply_patch(self)
+
+    def validate_a64fx(self, spec):
+        """Checks if a64fx build of gromacs is possible
+
+        Args:
+            target: the target to build
+            spec: spec of the package
+
+        """
+
+        # SVE in only supported from GROMACS 2021
+        if self.spec.version < Version('2021'):
+            return False
+
+        # scalable vector length only supports double precision
+        if 'vl=scalable' in spec and '+double' in spec:
+            return False
+
+        # only a few compilers are supported
+        if self.spec.satisfies('%gcc@10:') or self.spec.satisfies('%fj@4.1.0:'):
+            return True
+
+        return False
 
     def cmake_args(self):
 
@@ -137,6 +171,12 @@ class Gromacs(CMakePackage):
         else:
             options.append('-DGMX_GPU:BOOL=OFF')
 
+        if '+fftpack' in self.spec:
+            options.append('-DGMX_FFT_LIBRARY=fftpack')
+
+        options.append('-DGMX_BLAS_USER=%s' % (self.spec['blas'].libs))
+        options.append('-DGMX_LAPACK_USER=%s' % (self.spec['lapack'].libs))
+
         # Activate SIMD based on properties of the target
         target = self.spec.target
         if target >= llnl.util.cpu.targets['bulldozer']:
@@ -148,6 +188,10 @@ class Gromacs(CMakePackage):
         elif target >= llnl.util.cpu.targets['power7']:
             # IBM Power 7 and beyond
             options.append('-DGMX_SIMD=IBM_VSX')
+        elif target >= llnl.util.cpu.targets['a64fx'] and self.validate_a64fx(self.spec):
+            # A64fx with SVE support in GROMACS
+            options.append('-DGMX_SIMD=ARM_SVE')
+            options.append('-DGMX_SIMD_ARM_SVE_LENGTH=%s' % (self.spec.variants['vl'].value))
         elif target.family == llnl.util.cpu.targets['aarch64']:
             # ARMv8
             options.append('-DGMX_SIMD=ARM_NEON_ASIMD')

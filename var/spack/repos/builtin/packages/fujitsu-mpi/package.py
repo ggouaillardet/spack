@@ -5,6 +5,7 @@
 
 from spack import *
 import os
+import subprocess
 
 
 class FujitsuMpi(Package):
@@ -28,6 +29,18 @@ class FujitsuMpi(Package):
     def install(self, spec, prefix):
         raise InstallError(
             'Fujitsu MPI is not installable; it is vendor supplied')
+
+    @property
+    def external_prefix(self):
+        try:
+            output=subprocess.check_output(['ompi_info', '--parseable', '--path', 'prefix']).decode('utf-8')
+            if output[0:12] == 'path:prefix:':
+                prefix = output[12:].strip()
+                return prefix
+            else:
+                return None
+        except subprocess.CalledProcessError as e:
+            return None
 
     @property
     def headers(self):

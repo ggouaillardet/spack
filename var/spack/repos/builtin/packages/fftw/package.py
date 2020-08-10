@@ -23,6 +23,8 @@ class Fftw(AutotoolsPackage):
     url = "http://www.fftw.org/fftw-3.3.4.tar.gz"
     list_url = "http://www.fftw.org/download.html"
 
+    version('3.3.9-271-g47423b75', sha256='3d3f25719283c6bb32e672e565ad137f1b6a53d1dbc3594659afb87159f97b8e')
+    version('3.3.9-270-gd7bb52ed', sha256='d7c7c36d85e23b648a5fcb1b62bdadf4ac8d77e013bd6a8b1738fc49923684a7')
     version('3.3.8', sha256='6113262f6e92c5bd474f2875fa1b01054c4ad5040f6b0da7c03c98821d9ae303')
     version('3.3.7', sha256='3b609b7feba5230e8f6dd8d245ddbefac324c5a6ae4186947670d9ac2cd25573')
     version('3.3.6-pl2', sha256='a5de35c5c824a78a058ca54278c706cdf3d4abba1c56b63531c2cb05f5d57da2')
@@ -138,6 +140,8 @@ class Fftw(AutotoolsPackage):
         # all precisions
         simd_features = ['sse2', 'avx', 'avx2', 'avx512', 'avx-128-fma',
                          'kcvi', 'vsx', 'neon']
+        if spec.satisfies('@3.3.9:'):
+            simd_features.append('sve')
         # float only
         float_simd_features = ['altivec', 'sse']
 
@@ -155,7 +159,7 @@ class Fftw(AutotoolsPackage):
             ]
 
         simd_options += [
-            '--enable-fma' if 'fma' in spec.target else '--disable-fma'
+            '--enable-fma' if 'fma' in spec.target or 'sve' in spec.target else '--disable-fma'
         ]
 
         # Double is the default precision, for all the others we need
